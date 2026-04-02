@@ -1,0 +1,8 @@
+dataset:
+  name: nuscenes-mini
+  root: ./data/nuscenes
+perception:
+  confidence_threshold: 0.5
+decision:
+  pedestrian_uncertainty_threshold: 0.6
+  approaching_intersection_distance_m: 20.0

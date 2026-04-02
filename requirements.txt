@@ -1,0 +1,5 @@
+pydantic>=2.0
+numpy>=1.24
+tqdm>=4.66
+nuscenes-devkit>=1.1.10
+# opencv-python>=4.8
