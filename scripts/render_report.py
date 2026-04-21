@@ -68,6 +68,7 @@ def _build_rows(
     limit: int,
     base_dir: Path,
     overlay_paths: Dict[str, Path],
+    udv_records: Optional[Dict[str, Dict[str, object]]] = None,
 ) -> List[str]:
     rows: List[str] = []
     count = 0
@@ -77,6 +78,7 @@ def _build_rows(
         trace = traces.get(sample_token)
         if not trace:
             continue
+        udv_record = udv_records.get(sample_token) if udv_records else None
         image_paths = frame.get("image_paths") or []
         image_path = None
         if sample_token in overlay_paths:
@@ -85,12 +87,14 @@ def _build_rows(
             image_path = image_paths[0]
         explanation = trace.get("explanation", "")
         trace_json = json.dumps(trace, indent=2, sort_keys=True)
+        udv_json = json.dumps(udv_record, indent=2, sort_keys=True) if udv_record else ""
         objects = frame.get("objects") or []
         ground_truth = _ground_truth_summary(objects)
         trace_summary = _trace_summary(trace.get("relations") or [], trace.get("constraints") or [], trace.get("targets") or [])
         map_summary = _map_context_summary(frame.get("metadata") or {})
         can_bus_summary = _can_bus_summary(frame)
         action = trace.get("action", {}).get("type", "")
+        udv_summary = _udv_summary(udv_record) if udv_record else ""
         rows.append(
             "\n".join(
                 [
@@ -99,7 +103,7 @@ def _build_rows(
                     f"<div class=\"meta\">Sample: {_html_escape(sample_token)}</div>",
                     "<div class=\"content\">",
                     f"<div class=\"image\">{_render_image(image_path, base_dir)}</div>",
-                    f"<div class=\"text\"><div class=\"gt\">{_html_escape(ground_truth)}</div><div class=\"gt\">{_html_escape(map_summary)}</div><div class=\"gt\">{_html_escape(can_bus_summary)}</div><div class=\"gt\">{_html_escape(trace_summary)}</div>{_html_escape(str(explanation))}<pre class=\"trace\">{_html_escape(trace_json)}</pre></div>",
+                    f"<div class=\"text\"><div class=\"gt\">{_html_escape(ground_truth)}</div><div class=\"gt\">{_html_escape(map_summary)}</div><div class=\"gt\">{_html_escape(can_bus_summary)}</div><div class=\"gt\">{_html_escape(trace_summary)}</div>{_html_escape(str(explanation))}{_render_udv_block(udv_summary, udv_json)}<pre class=\"trace\">{_html_escape(trace_json)}</pre></div>",
                     "</div>",
                     "</div>",
                 ]
@@ -302,6 +306,37 @@ def _can_bus_summary(frame: Dict[str, object]) -> str:
     return "CAN bus: " + ", ".join(parts) + "."
 
 
+def _udv_summary(udv_record: Dict[str, object]) -> str:
+    decide = udv_record.get("decide", {}) if isinstance(udv_record, dict) else {}
+    if not isinstance(decide, dict):
+        return "UDV: n/a"
+    action = decide.get("action", "n/a")
+    confidence = decide.get("confidence")
+    constraints = decide.get("constraints", [])
+    constraint_text = ", ".join(str(item) for item in constraints) if constraints else "none"
+    verify_score = udv_record.get("verify_score")
+    verify_text = ""
+    if isinstance(verify_score, (int, float)):
+        verify_text = f" verify_score={verify_score:.2f}"
+    if isinstance(confidence, (int, float)):
+        return (
+            f"UDV: action={action} confidence={confidence:.2f} "
+            f"constraints={constraint_text}{verify_text}."
+        )
+    return f"UDV: action={action} constraints={constraint_text}{verify_text}."
+
+
+def _render_udv_block(summary: str, udv_json: str) -> str:
+    if not summary:
+        return ""
+    if udv_json:
+        return (
+            f"<div class=\"gt\">{_html_escape(summary)}</div>"
+            f"<pre class=\"udv\">{_html_escape(udv_json)}</pre>"
+        )
+    return f"<div class=\"gt\">{_html_escape(summary)}</div>"
+
+
 def _format_target_summary(target: Dict[str, object]) -> str:
     label = target.get("label") or target.get("category_name") or target.get("id")
     distance = target.get("distance_m")
@@ -428,6 +463,7 @@ def _build_html(rows: List[str]) -> str:
             ".text { font-size: 14px; line-height: 1.4; }",
             ".gt { font-size: 12px; color: #222; margin-bottom: 8px; }",
             ".trace { background: #f2f3f5; padding: 8px; border-radius: 6px; font-size: 12px; overflow-x: auto; white-space: pre-wrap; }",
+            ".udv { background: #eef6ff; padding: 8px; border-radius: 6px; font-size: 12px; overflow-x: auto; white-space: pre-wrap; }",
             ".meta { font-size: 12px; color: #555; margin-bottom: 4px; }",
             ".missing { color: #b00; font-size: 12px; }",
             "</style>",
@@ -451,10 +487,19 @@ def main() -> None:
     parser.add_argument("--overlay", action="store_true")
     parser.add_argument("--dataset-root", default="data")
     parser.add_argument("--version", default="v1.0-mini")
+    parser.add_argument("--use-factor-traces", action="store_true")
+    parser.add_argument("--udv", default="")
     args = parser.parse_args()
 
+    traces_path = args.traces
+    if args.use_factor_traces:
+        traces_path = "data/factor_traces.jsonl"
+
     frames = _index_frames_by_sample(_load_jsonl(args.frames))
-    traces = _index_traces_by_sample(_load_jsonl(args.traces))
+    traces = _index_traces_by_sample(_load_jsonl(traces_path))
+    udv_records: Optional[Dict[str, Dict[str, object]]] = None
+    if args.udv:
+        udv_records = _index_traces_by_sample(_load_jsonl(args.udv))
     output_path = Path(args.output)
     output_path.parent.mkdir(parents=True, exist_ok=True)
     overlay_paths: Dict[str, Path] = {}
@@ -471,6 +516,7 @@ def main() -> None:
         args.limit,
         output_path.parent.resolve(),
         overlay_paths,
+        udv_records,
     )
     summary = _build_summary(frames, traces)
     if summary:

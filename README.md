@@ -15,37 +15,99 @@ Explanations are derived from structured TRACE outputs, not post-hoc text.
 - `scripts/`: runnable entry points
 - `docs/`: design documentation
 
-## Quickstart (scaffold)
+## Quickstart
 Install dependencies:
 ```
 pip install -r requirements.txt
 ```
 
 Notes:
-- The TRACE/UDV structure lives in `src/` as outlined above.
+- The TRACE/UDV code lives in `src/`.
+- Most scripts assume `PYTHONPATH=src` (the one-shot script handles this for you).
 
-## Next steps
-- Implement `src/data/schemas.py` validation checks and a minimal unit test.
-- Connect nuScenes mini loader to `src/perception/features.py`.
-- Build teacher traces via `src/teacher/teacher_runner.py`.
-- Add evaluation summaries in `src/eval/metrics.py`.
-
-## Dummy pipeline (current)
-Run the dummy inference and teacher/eval flow:
+## One-shot flow (recommended)
+Generate frames → teacher traces → eval summary → report in one command:
 ```
-python scripts/run_infer.py
-python scripts/run_teacher.py
-python scripts/run_eval.py
+python scripts/run_all.py --dataset-root data/v1.0-mini --limit 120 --report-limit 120
 ```
 
-`run_infer.py` writes `data/perception_frames.jsonl`, which `run_teacher.py` reads by default.
+Use existing frames (e.g., `data/diverse_frames.jsonl`):
+```
+python scripts/run_all.py --skip-infer --frames data/diverse_frames.jsonl \
+  --traces data/diverse_traces.jsonl --report data/diverse_report.html --report-limit 120
+```
 
-## nuScenes mini usage
-If you unzipped the dataset into `data/v1.0-mini/` (so the JSON metadata lives at
-`data/v1.0-mini/v1.0-mini/*.json`), run:
+Include UDV outputs in the report:
 ```
-python scripts/run_infer.py --dataset-root data/v1.0-mini --limit 50
+python scripts/run_all.py --run-udv --udv-output data/udv_outputs.jsonl
 ```
+
+Common flags:
+- `--dataset-root`: nuScenes root (default `data/v1.0-mini`)
+- `--limit`: number of frames to generate
+- `--report-limit`: number of report cards (0 = all)
+- `--overlay`: render nuScenes overlays into `data/report_images/`
+- `--run-udv`: generate UDV outputs and inject them into report
+- `--udv-limit`: number of frames for UDV (0 = all)
+
+## Individual executables
+Generate perception frames (nuScenes mini):
+```
+PYTHONPATH=src python scripts/run_infer.py --dataset-root data/v1.0-mini --limit 50 --output data/perception_frames.jsonl
+```
+
+Generate teacher traces:
+```
+PYTHONPATH=src python scripts/run_teacher.py --input data/perception_frames.jsonl --output data/teacher_traces.jsonl --limit 50
+```
+
+Summarize action distribution:
+```
+PYTHONPATH=src python scripts/run_eval.py --traces data/teacher_traces.jsonl
+```
+
+Render report:
+```
+PYTHONPATH=src python scripts/render_report.py --frames data/perception_frames.jsonl --traces data/teacher_traces.jsonl --output data/report.html --limit 50
+```
+
+Render report with overlays:
+```
+PYTHONPATH=src python scripts/render_report.py --frames data/perception_frames.jsonl --traces data/teacher_traces.jsonl --output data/report.html --limit 50 --overlay --dataset-root data
+```
+
+Generate UDV outputs:
+```
+PYTHONPATH=src python scripts/run_udv_llm.py --frames data/perception_frames.jsonl --output data/udv_outputs.jsonl --limit 50
+```
+
+Train and infer the factor model:
+```
+PYTHONPATH=src python scripts/run_train_factors.py
+PYTHONPATH=src python scripts/run_infer.py --dataset-root data/v1.0-mini --limit 120 --output data/perception_frames.jsonl
+PYTHONPATH=src python src/models/infer.py --frames data/perception_frames.jsonl --model data/factor_model.pkl --output data/factor_traces.jsonl
+```
+
+Evaluate factor model vs teacher traces:
+```
+PYTHONPATH=src python scripts/evaluate_factor.py --teacher data/teacher_traces.jsonl --factor data/factor_traces.jsonl
+```
+
+## Report interpretation guide
+Each card corresponds to one frame:
+- **Action**: TRACE action chosen by deterministic teacher rules.
+- **Detected**: object counts and context (closest distance, velocity, approach rate).
+- **Map**: lanes/crosswalks/stop lines and ego pose, if available.
+- **CAN bus**: speed/accel/brake/throttle and derived `motion_state`.
+- **TRACE**: targets/relations/constraints that justified the action.
+- **UDV** (optional): deterministic UDV output with `verify_score`.
+
+Summary section:
+- **Action distribution**: counts of STOP/SLOW/PROCEED.
+- **Top constraints**: most frequent constraint types.
+- **TRACE coverage**: percent of traces with targets/relations/constraints.
+- **Confidence**: min/avg/max action confidence.
+- **Failure taxonomy**: heuristic error tags for quick review.
 
 ## Heuristic perception flags (current)
 The loader assigns simple distance-based flags for pedestrians and cyclists:

@@ -1,3 +1,4 @@
+import argparse
 import json
 from pathlib import Path
 from typing import List
@@ -19,7 +20,11 @@ def _load_traces(path: str | Path) -> List[TraceRecord]:
 
 
 def main() -> None:
-    traces = _load_traces("data/teacher_traces.jsonl")
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--traces", default="data/teacher_traces.jsonl")
+    args = parser.parse_args()
+
+    traces = _load_traces(args.traces)
     action_counts = summarize_action_distribution(traces)
     print("Action distribution:", action_counts)
 

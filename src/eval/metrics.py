@@ -50,6 +50,50 @@ def summarize_confidence_stats(traces: Iterable[TraceLike]) -> Dict[str, float]:
     }
 
 
+def compute_action_accuracy(
+    predicted: Iterable[TraceLike],
+    ground_truth: Iterable[TraceLike],
+) -> float:
+    pred_index = _index_traces(predicted)
+    truth_index = _index_traces(ground_truth)
+    common = set(pred_index) & set(truth_index)
+    if not common:
+        return 0.0
+    matches = 0
+    for token in common:
+        if _action_type(pred_index[token]) == _action_type(truth_index[token]):
+            matches += 1
+    return matches / len(common)
+
+
+def compute_constraint_scores(
+    predicted: Iterable[TraceLike],
+    ground_truth: Iterable[TraceLike],
+) -> Dict[str, float]:
+    pred_index = _index_traces(predicted)
+    truth_index = _index_traces(ground_truth)
+    common = set(pred_index) & set(truth_index)
+    if not common:
+        return {"precision": 0.0, "recall": 0.0, "f1": 0.0}
+    precision_sum = 0.0
+    recall_sum = 0.0
+    f1_sum = 0.0
+    for token in common:
+        precision, recall, f1 = _constraint_scores(
+            _constraints(pred_index[token]),
+            _constraints(truth_index[token]),
+        )
+        precision_sum += precision
+        recall_sum += recall
+        f1_sum += f1
+    total = len(common)
+    return {
+        "precision": precision_sum / total,
+        "recall": recall_sum / total,
+        "f1": f1_sum / total,
+    }
+
+
 def _action_type(trace: TraceLike) -> str:
     if isinstance(trace, TraceRecord):
         return trace.action.type.value
@@ -80,6 +124,27 @@ def _constraints(trace: TraceLike) -> List[str]:
     return []
 
 
+def _constraint_scores(pred: List[str], truth: List[str]) -> Tuple[float, float, float]:
+    pred_set = set(pred)
+    truth_set = set(truth)
+    tp = len(pred_set & truth_set)
+    fp = len(pred_set - truth_set)
+    fn = len(truth_set - pred_set)
+    precision = tp / (tp + fp) if tp + fp > 0 else 0.0
+    recall = tp / (tp + fn) if tp + fn > 0 else 0.0
+    f1 = (2 * precision * recall / (precision + recall)) if precision + recall > 0 else 0.0
+    return precision, recall, f1
+
+
+def _index_traces(traces: Iterable[TraceLike]) -> Dict[str, TraceLike]:
+    indexed: Dict[str, TraceLike] = {}
+    for trace in traces:
+        token = _sample_token(trace)
+        if token:
+            indexed[token] = trace
+    return indexed
+
+
 def _targets(trace: TraceLike) -> List[Dict[str, object]]:
     if isinstance(trace, TraceRecord):
         return [t.model_dump() for t in trace.targets]
@@ -96,3 +161,16 @@ def _relations(trace: TraceLike) -> List[Dict[str, object]]:
     if isinstance(value, list):
         return [item for item in value if isinstance(item, dict)]
     return []
+
+
+def _sample_token(trace: TraceLike) -> str:
+    if isinstance(trace, TraceRecord):
+        if trace.metadata:
+            token = trace.metadata.get("sample_token")
+            return str(token) if token else ""
+        return ""
+    metadata = trace.get("metadata", {}) if isinstance(trace, dict) else {}
+    if isinstance(metadata, dict):
+        token = metadata.get("sample_token")
+        return str(token) if token else ""
+    return ""
