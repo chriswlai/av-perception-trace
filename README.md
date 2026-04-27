@@ -85,6 +85,88 @@ decision-making, and explanation generation.
 }
 ```
 
+## Sample Visuals
+
+Add two example images (report screenshot, overlay) by placing files in `docs/images/`
+and updating the paths below.
+
+![TRACE report example](docs/images/trace_report_example.png)
+![UDV JSON example](docs/images/udv_json_example.png)
+
+## Failure Case Example
+
+CAN bus indicates `proceeding`, but TRACE/UDV decide to `STOP` for sample
+`b26e791522294bec90f86fd72226e35c`.
+
+TRACE (truncated):
+```json
+{
+  "metadata": {
+    "sample_token": "b26e791522294bec90f86fd72226e35c"
+  },
+  "action": {
+    "type": "STOP",
+    "confidence": 0.9
+  },
+  "can_bus": {
+    "motion_state": "proceeding",
+    "vehicle_speed_mps": 15.55,
+    "accel_mps2": 0.74,
+    "brake": 0.0,
+    "throttle": 79.0
+  },
+  "constraints": [
+    "pedestrian_in_path",
+    "pedestrian_close_near_crosswalk",
+    "closing_on_vehicle_ahead",
+    "vehicle_ahead_close",
+    "pedestrian_near_path",
+    "stop_line_ahead"
+  ],
+  "targets": [
+    "human.pedestrian.construction_worker (9.2m)",
+    "human.pedestrian.adult (4.6m)",
+    "vehicle.motorcycle (12.2m)",
+    "vehicle.construction (11.2m)"
+  ]
+}
+```
+
+UDV (truncated):
+```json
+{
+  "decide": {
+    "action": "STOP",
+    "confidence": 0.9,
+    "constraints": [
+      "pedestrian_in_path",
+      "pedestrian_close_near_crosswalk",
+      "closing_on_vehicle_ahead",
+      "vehicle_ahead_close",
+      "pedestrian_near_path",
+      "stop_line_ahead"
+    ]
+  },
+  "verify": {
+    "checks": [
+      {
+        "description": "Decision consistent with constraints.",
+        "passed": true
+      }
+    ],
+    "counterfactuals": [
+      "If blocking constraints were absent, action would be PROCEED."
+    ]
+  },
+  "verify_score": 1.0
+}
+```
+
+Analysis:
+- CAN bus shows the ego vehicle proceeding despite a STOP decision
+- multiple close pedestrians + stop line constraints overrode motion cues
+- highlights how conservative rules can conflict with actual motion state
+
 ## System Structure
 
 ```
